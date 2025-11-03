@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: n8n-azure
+metadata:
+  template: n8n-azure@0.0.1-beta
+
+# Terraform infrastructure configuration
+infra:
+  provider: terraform
+  path: infra
+
+# Hooks
+hooks:
+  postprovision:
+    posix:
+      shell: sh
+      run: ./hooks/postprovision.sh
+      continueOnError: false
+    windows:
+      shell: pwsh
+      run: ./hooks/postprovision.ps1
+      continueOnError: false
