@@ -1,59 +1,58 @@
-variable "project_name" {
-  description = "Name of the project"
-  type        = string
-  default     = "n8n"
-}
-
 variable "environment_name" {
-  description = "Environment name (dev, staging, prod)"
+  description = "Name of the azd environment"
   type        = string
-  default     = "dev"
 }
 
 variable "location" {
   description = "Azure region for resources"
   type        = string
-  default     = "eastus"
+  default     = "westus"
 }
 
-variable "n8n_image" {
-  description = "n8n container image"
+variable "principal_id" {
+  description = "Principal ID of the user deploying the resources"
   type        = string
-  default     = "docker.n8n.io/n8nio/n8n:latest"
+  default     = ""
 }
 
-variable "n8n_timezone" {
-  description = "Timezone for n8n"
+variable "n8n_version" {
+  description = "n8n Docker image version"
   type        = string
-  default     = "America/New_York"
+  default     = "latest"
 }
 
-variable "container_cpu" {
-  description = "CPU cores for container"
-  type        = number
-  default     = 0.5
-}
-
-variable "container_memory" {
-  description = "Memory in GB for container"
+variable "postgres_user" {
+  description = "PostgreSQL database username"
   type        = string
-  default     = "1Gi"
+  default     = "n8n"
 }
 
-variable "min_replicas" {
-  description = "Minimum number of replicas (0 for scale-to-zero)"
-  type        = number
-  default     = 0
+variable "postgres_password" {
+  description = "PostgreSQL database password"
+  type        = string
+  sensitive   = true
 }
 
-variable "max_replicas" {
-  description = "Maximum number of replicas"
-  type        = number
-  default     = 3
+variable "postgres_db" {
+  description = "PostgreSQL database name"
+  type        = string
+  default     = "n8n"
 }
 
-variable "storage_size_gb" {
-  description = "Storage size in GB for SQLite volume"
-  type        = number
-  default     = 1
+variable "n8n_basic_auth_active" {
+  description = "Enable basic authentication for n8n"
+  type        = bool
+  default     = true
+}
+
+variable "n8n_basic_auth_user" {
+  description = "n8n basic auth username"
+  type        = string
+  default     = "admin"
+}
+
+variable "n8n_basic_auth_password" {
+  description = "n8n basic auth password"
+  type        = string
+  sensitive   = true
 }

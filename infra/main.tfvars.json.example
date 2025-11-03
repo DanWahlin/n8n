@@ -1,0 +1,4 @@
+{
+  "postgres_password": "REPLACE_WITH_STRONG_PASSWORD",
+  "n8n_basic_auth_password": "REPLACE_WITH_STRONG_PASSWORD"
+}

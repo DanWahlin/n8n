@@ -1,20 +1,26 @@
 # Terraform
-.terraform/
 *.tfstate
 *.tfstate.*
 *.tfvars
-!terraform.tfvars.json
+*.tfvars.json
+!*.tfvars.json.example
+.terraform/
 .terraform.lock.hcl
 crash.log
 crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
 
 # Azure Developer CLI
 .azure/
-*.env
-!.env.sample
+!.azure/.gitkeep
 
-# n8n local data (if testing locally)
-.n8n/
+# Environment variables
+.env
+.env.*
+!.env.example
 
 # OS
 .DS_Store
@@ -29,3 +35,8 @@ Thumbs.db
 
 # Logs
 *.log
+logs/
+
+# Backup files
+*.bak
+*.backup
