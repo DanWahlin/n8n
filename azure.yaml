@@ -5,16 +5,3 @@ metadata:
 infra:
   provider: terraform
   path: infra
-
-hooks:
-  postprovision:
-    posix:
-      shell: sh
-      run: ./infra/hooks/backup-encryption-key.sh
-      continueOnError: false
-      interactive: false
-    windows:
-      shell: pwsh
-      run: ./infra/hooks/backup-encryption-key.ps1
-      continueOnError: false
-      interactive: false

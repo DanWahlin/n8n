@@ -32,7 +32,8 @@ IMPORTANT IMPLEMENTATION DETAILS:
 4. Use azd-managed local Terraform state (create main.tfvars.json, not terraform.tfvars.json)
 5. Post-provision hook should use absolute paths from .azure/<env-name>/infra directory
 6. Do NOT reference Container App FQDN in environment variables during creation (circular dependency)
-7. Use the following to configure Terraform in `azure.yaml`:
+7. Avoid adding azd hooks unless they are absolutely needed!
+8. Use the following to configure Terraform in `azure.yaml`:
 
 # Terraform infrastructure configuration
 infra:
