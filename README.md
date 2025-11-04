@@ -185,7 +185,9 @@ n8n/
 
 For issues with the agents or deployment, the agents themselves can help troubleshoot by analyzing errors and providing solutions.
 
-## Prerequisites
+## License
+
+This deployment configuration is provided as-is. n8n itself is licensed under the [Sustainable Use License](https://github.com/n8n-io/n8n/blob/master/LICENSE.md).
 
 Before you begin, ensure you have the following installed:
 
