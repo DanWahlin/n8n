@@ -1,7 +1,22 @@
-name: n8n-azure
-metadata:
-  template: n8n-azure@0.0.1
+# Azure Developer CLI Configuration for n8n
+# This file configures azd to use Terraform and defines deployment hooks
 
+name: n8n
+metadata:
+  template: n8n-azure-terraform
+
+# Configure Terraform as the infrastructure provider
 infra:
   provider: terraform
   path: infra
+
+# Post-provision hooks to configure WEBHOOK_URL
+# These run automatically after 'azd up' completes
+hooks:
+  postprovision:
+    posix:
+      shell: sh
+      run: ./infra/hooks/postprovision.sh
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/postprovision.ps1

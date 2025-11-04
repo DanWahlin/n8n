@@ -1,34 +1,34 @@
-# Random suffix for unique resource names
-resource "random_string" "resource_suffix" {
+# Main Terraform Infrastructure for n8n on Azure
+# This file defines all Azure resources required for deploying n8n
+
+# Generate random suffix for globally unique resource names
+resource "random_string" "suffix" {
   length  = 6
   special = false
   upper   = false
 }
 
-# Generate n8n encryption key
-resource "random_string" "n8n_encryption_key" {
+# Generate random encryption key for n8n
+resource "random_password" "n8n_encryption_key" {
   length  = 32
   special = true
-  upper   = true
-  lower   = true
-  numeric = true
 }
 
 # Resource Group
 resource "azurerm_resource_group" "main" {
-  name     = "rg-${var.environment_name}-${random_string.resource_suffix.result}"
+  name     = "rg-${var.environment_name}-${random_string.suffix.result}"
   location = var.location
 
   tags = {
     environment = var.environment_name
     application = "n8n"
-    azd-env-name = var.environment_name
+    managed_by  = "terraform"
   }
 }
 
-# Log Analytics Workspace for Container Apps monitoring
+# Log Analytics Workspace for monitoring
 resource "azurerm_log_analytics_workspace" "main" {
-  name                = "log-${var.environment_name}-${random_string.resource_suffix.result}"
+  name                = "log-${var.environment_name}-${random_string.suffix.result}"
   location            = azurerm_resource_group.main.location
   resource_group_name = azurerm_resource_group.main.name
   sku                 = "PerGB2018"
@@ -42,7 +42,7 @@ resource "azurerm_log_analytics_workspace" "main" {
 
 # Container Apps Environment
 resource "azurerm_container_app_environment" "main" {
-  name                       = "cae-${var.environment_name}-${random_string.resource_suffix.result}"
+  name                       = "cae-${var.environment_name}-${random_string.suffix.result}"
   location                   = azurerm_resource_group.main.location
   resource_group_name        = azurerm_resource_group.main.name
   log_analytics_workspace_id = azurerm_log_analytics_workspace.main.id
@@ -53,22 +53,30 @@ resource "azurerm_container_app_environment" "main" {
   }
 }
 
-# Azure Database for PostgreSQL Flexible Server
+# PostgreSQL Flexible Server
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                   = "psql-${var.environment_name}-${random_string.resource_suffix.result}"
-  resource_group_name    = azurerm_resource_group.main.name
+  name                   = "psql-${var.environment_name}-${random_string.suffix.result}"
   location               = azurerm_resource_group.main.location
+  resource_group_name    = azurerm_resource_group.main.name
   version                = "16"
   administrator_login    = var.postgres_user
   administrator_password = var.postgres_password
-  storage_mb             = 32768
   sku_name               = "B_Standard_B1ms"
+  storage_mb             = 32768
   backup_retention_days  = 7
-  
+
   tags = {
     environment = var.environment_name
     application = "n8n"
   }
+}
+
+# PostgreSQL Firewall Rule - Allow Azure services
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
+  name             = "AllowAzureServices"
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
 # PostgreSQL Database
@@ -79,17 +87,9 @@ resource "azurerm_postgresql_flexible_server_database" "main" {
   collation = "en_US.utf8"
 }
 
-# Firewall rule to allow Azure services
-resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure_services" {
-  name             = "AllowAzureServices"
-  server_id        = azurerm_postgresql_flexible_server.main.id
-  start_ip_address = "0.0.0.0"
-  end_ip_address   = "0.0.0.0"
-}
-
 # n8n Container App
 resource "azurerm_container_app" "n8n" {
-  name                         = "ca-n8n-${var.environment_name}-${random_string.resource_suffix.result}"
+  name                         = "ca-n8n-${random_string.suffix.result}"
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
@@ -103,35 +103,6 @@ resource "azurerm_container_app" "n8n" {
       image  = "docker.io/n8nio/n8n:latest"
       cpu    = 1.0
       memory = "2Gi"
-
-      liveness_probe {
-        transport             = "HTTP"
-        port                  = 5678
-        path                  = "/"
-        initial_delay         = 60
-        interval_seconds      = 30
-        timeout               = 10
-        failure_count_threshold = 3
-      }
-
-      readiness_probe {
-        transport               = "HTTP"
-        port                    = 5678
-        path                    = "/"
-        interval_seconds        = 10
-        timeout                 = 5
-        failure_count_threshold = 3
-        success_count_threshold = 1
-      }
-
-      startup_probe {
-        transport               = "HTTP"
-        port                    = 5678
-        path                    = "/"
-        interval_seconds        = 10
-        timeout                 = 5
-        failure_count_threshold = 30
-      }
 
       # Database configuration
       env {
@@ -174,21 +145,20 @@ resource "azurerm_container_app" "n8n" {
         secret_name = "postgres-password"
       }
 
-      # n8n encryption key
+      # n8n configuration
       env {
         name        = "N8N_ENCRYPTION_KEY"
         secret_name = "n8n-encryption-key"
       }
 
-      # Basic authentication
       env {
         name  = "N8N_BASIC_AUTH_ACTIVE"
-        value = var.n8n_basic_auth_active ? "true" : "false"
+        value = tostring(var.n8n_basic_auth_active)
       }
 
       env {
-        name        = "N8N_BASIC_AUTH_USER"
-        secret_name = "n8n-basic-auth-user"
+        name  = "N8N_BASIC_AUTH_USER"
+        value = var.n8n_basic_auth_user
       }
 
       env {
@@ -196,7 +166,6 @@ resource "azurerm_container_app" "n8n" {
         secret_name = "n8n-basic-auth-password"
       }
 
-      # n8n configuration
       env {
         name  = "N8N_PORT"
         value = "5678"
@@ -207,28 +176,39 @@ resource "azurerm_container_app" "n8n" {
         value = "https"
       }
 
-      env {
-        name  = "N8N_LOG_LEVEL"
-        value = "debug"
+      # Health probes
+      liveness_probe {
+        transport               = "HTTP"
+        port                    = 5678
+        path                    = "/"
+        initial_delay           = 60
+        interval_seconds        = 30
+        timeout                 = 10
+        failure_count_threshold = 3
       }
 
-      env {
-        name  = "EXECUTIONS_MODE"
-        value = "regular"
+      readiness_probe {
+        transport               = "HTTP"
+        port                    = 5678
+        path                    = "/"
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 3
+        success_count_threshold = 1
       }
 
-      env {
-        name  = "GENERIC_TIMEZONE"
-        value = "America/Los_Angeles"
-      }
-
-      env {
-        name  = "TZ"
-        value = "America/Los_Angeles"
+      startup_probe {
+        transport               = "HTTP"
+        port                    = 5678
+        path                    = "/"
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 30
       }
     }
   }
 
+  # Secrets configuration
   secret {
     name  = "postgres-password"
     value = var.postgres_password
@@ -236,12 +216,7 @@ resource "azurerm_container_app" "n8n" {
 
   secret {
     name  = "n8n-encryption-key"
-    value = random_string.n8n_encryption_key.result
-  }
-
-  secret {
-    name  = "n8n-basic-auth-user"
-    value = var.n8n_basic_auth_user
+    value = random_password.n8n_encryption_key.result
   }
 
   secret {
@@ -249,23 +224,25 @@ resource "azurerm_container_app" "n8n" {
     value = var.n8n_basic_auth_password
   }
 
+  # Ingress configuration
   ingress {
     external_enabled = true
     target_port      = 5678
 
     traffic_weight {
-      percentage      = 100
       latest_revision = true
+      percentage      = 100
     }
   }
 
   tags = {
     environment = var.environment_name
     application = "n8n"
-    component   = "app"
   }
 
+  # Ensure database is created before deploying n8n
   depends_on = [
-    azurerm_postgresql_flexible_server_database.main
+    azurerm_postgresql_flexible_server_database.main,
+    azurerm_postgresql_flexible_server_firewall_rule.allow_azure
   ]
 }
