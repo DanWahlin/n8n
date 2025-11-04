@@ -53,76 +53,38 @@ resource "azurerm_container_app_environment" "main" {
   }
 }
 
-# PostgreSQL Container App for n8n database
-resource "azurerm_container_app" "postgres" {
-  name                         = "ca-postgres-${var.environment_name}-${random_string.resource_suffix.result}"
-  container_app_environment_id = azurerm_container_app_environment.main.id
-  resource_group_name          = azurerm_resource_group.main.name
-  revision_mode                = "Single"
-
-  template {
-    min_replicas = 1
-    max_replicas = 1
-
-    container {
-      name   = "postgres"
-      image  = "docker.io/postgres:16-alpine"
-      cpu    = 0.5
-      memory = "1Gi"
-
-      env {
-        name  = "POSTGRES_USER"
-        value = var.postgres_user
-      }
-
-      env {
-        name        = "POSTGRES_PASSWORD"
-        secret_name = "postgres-password"
-      }
-
-      env {
-        name  = "POSTGRES_DB"
-        value = var.postgres_db
-      }
-
-      env {
-        name  = "PGDATA"
-        value = "/var/lib/postgresql/data/pgdata"
-      }
-
-      volume_mounts {
-        name = "postgres-data"
-        path = "/var/lib/postgresql/data"
-      }
-    }
-
-    volume {
-      name         = "postgres-data"
-      storage_type = "EmptyDir"
-    }
-  }
-
-  secret {
-    name  = "postgres-password"
-    value = var.postgres_password
-  }
-
-  ingress {
-    external_enabled = false
-    target_port      = 5432
-    transport        = "tcp"
-
-    traffic_weight {
-      percentage      = 100
-      latest_revision = true
-    }
-  }
-
+# Azure Database for PostgreSQL Flexible Server
+resource "azurerm_postgresql_flexible_server" "main" {
+  name                   = "psql-${var.environment_name}-${random_string.resource_suffix.result}"
+  resource_group_name    = azurerm_resource_group.main.name
+  location               = azurerm_resource_group.main.location
+  version                = "16"
+  administrator_login    = var.postgres_user
+  administrator_password = var.postgres_password
+  storage_mb             = 32768
+  sku_name               = "B_Standard_B1ms"
+  backup_retention_days  = 7
+  
   tags = {
     environment = var.environment_name
     application = "n8n"
-    component   = "database"
   }
+}
+
+# PostgreSQL Database
+resource "azurerm_postgresql_flexible_server_database" "main" {
+  name      = var.postgres_db
+  server_id = azurerm_postgresql_flexible_server.main.id
+  charset   = "UTF8"
+  collation = "en_US.utf8"
+}
+
+# Firewall rule to allow Azure services
+resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure_services" {
+  name             = "AllowAzureServices"
+  server_id        = azurerm_postgresql_flexible_server.main.id
+  start_ip_address = "0.0.0.0"
+  end_ip_address   = "0.0.0.0"
 }
 
 # n8n Container App
@@ -179,7 +141,12 @@ resource "azurerm_container_app" "n8n" {
 
       env {
         name  = "DB_POSTGRESDB_HOST"
-        value = azurerm_container_app.postgres.name
+        value = azurerm_postgresql_flexible_server.main.fqdn
+      }
+
+      env {
+        name  = "DB_POSTGRESDB_SSL_ENABLED"
+        value = "true"
       }
 
       env {
@@ -299,6 +266,6 @@ resource "azurerm_container_app" "n8n" {
   }
 
   depends_on = [
-    azurerm_container_app.postgres
+    azurerm_postgresql_flexible_server_database.main
   ]
 }

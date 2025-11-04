@@ -24,8 +24,13 @@ output "container_app_name" {
 }
 
 output "postgres_container_app_name" {
-  description = "Name of the PostgreSQL container app"
-  value       = azurerm_container_app.postgres.name
+  description = "Name of the PostgreSQL Flexible Server"
+  value       = azurerm_postgresql_flexible_server.main.name
+}
+
+output "postgres_fqdn" {
+  description = "FQDN of the PostgreSQL Flexible Server"
+  value       = azurerm_postgresql_flexible_server.main.fqdn
 }
 
 output "log_analytics_workspace_name" {
