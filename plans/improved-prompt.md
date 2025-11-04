@@ -33,7 +33,9 @@ IMPORTANT IMPLEMENTATION DETAILS:
 5. Post-provision hook should use absolute paths from .azure/<env-name>/infra directory
 6. Do NOT reference Container App FQDN in environment variables during creation (circular dependency)
 7. Avoid adding azd hooks unless they are absolutely needed!
-8. Use the following to configure Terraform in `azure.yaml`:
+8. Use the latest version of the azurerm provider version
+8. Set resource_provider_registrations = "none" in azurerm provider to avoid 409 conflicts
+9. Use the following to configure Terraform in `azure.yaml`:
 
 # Terraform infrastructure configuration
 infra:
