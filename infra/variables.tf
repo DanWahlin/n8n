@@ -9,12 +9,6 @@ variable "location" {
   default     = "westus"
 }
 
-variable "principal_id" {
-  description = "Principal ID of the user deploying the resources"
-  type        = string
-  default     = ""
-}
-
 variable "n8n_version" {
   description = "n8n Docker image version"
   type        = string

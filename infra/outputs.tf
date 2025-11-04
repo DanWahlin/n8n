@@ -28,16 +28,6 @@ output "postgres_container_app_name" {
   value       = azurerm_container_app.postgres.name
 }
 
-output "key_vault_name" {
-  description = "Name of the Key Vault"
-  value       = azurerm_key_vault.main.name
-}
-
-output "key_vault_uri" {
-  description = "URI of the Key Vault"
-  value       = azurerm_key_vault.main.vault_uri
-}
-
 output "log_analytics_workspace_name" {
   description = "Name of the Log Analytics workspace"
   value       = azurerm_log_analytics_workspace.main.name
@@ -52,14 +42,4 @@ output "n8n_encryption_key" {
   description = "n8n encryption key (sensitive)"
   value       = random_string.n8n_encryption_key.result
   sensitive   = true
-}
-
-output "n8n_managed_identity_principal_id" {
-  description = "Principal ID of the n8n managed identity"
-  value       = azurerm_user_assigned_identity.n8n.principal_id
-}
-
-output "n8n_managed_identity_client_id" {
-  description = "Client ID of the n8n managed identity"
-  value       = azurerm_user_assigned_identity.n8n.client_id
 }

@@ -125,55 +125,6 @@ resource "azurerm_container_app" "postgres" {
   }
 }
 
-# User-assigned Managed Identity for n8n Container App
-resource "azurerm_user_assigned_identity" "n8n" {
-  name                = "id-n8n-${var.environment_name}-${random_string.resource_suffix.result}"
-  location            = azurerm_resource_group.main.location
-  resource_group_name = azurerm_resource_group.main.name
-
-  tags = {
-    environment = var.environment_name
-    application = "n8n"
-  }
-}
-
-# Get current client configuration
-data "azurerm_client_config" "current" {}
-
-# Key Vault for storing encryption key backup
-resource "azurerm_key_vault" "main" {
-  name                       = "kv-${var.environment_name}-${random_string.resource_suffix.result}"
-  location                   = azurerm_resource_group.main.location
-  resource_group_name        = azurerm_resource_group.main.name
-  tenant_id                  = data.azurerm_client_config.current.tenant_id
-  sku_name                   = "standard"
-  soft_delete_retention_days = 7
-  purge_protection_enabled   = false
-
-  # Enable RBAC for access control
-  enable_rbac_authorization = true
-
-  tags = {
-    environment = var.environment_name
-    application = "n8n"
-  }
-}
-
-# Grant Key Vault Secrets Officer role to the deployer
-resource "azurerm_role_assignment" "keyvault_deployer" {
-  count                = var.principal_id != "" ? 1 : 0
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets Officer"
-  principal_id         = var.principal_id
-}
-
-# Grant Key Vault Secrets User role to n8n managed identity
-resource "azurerm_role_assignment" "keyvault_n8n" {
-  scope                = azurerm_key_vault.main.id
-  role_definition_name = "Key Vault Secrets User"
-  principal_id         = azurerm_user_assigned_identity.n8n.principal_id
-}
-
 # n8n Container App
 resource "azurerm_container_app" "n8n" {
   name                         = "ca-n8n-${var.environment_name}-${random_string.resource_suffix.result}"
@@ -181,20 +132,44 @@ resource "azurerm_container_app" "n8n" {
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
 
-  identity {
-    type         = "UserAssigned"
-    identity_ids = [azurerm_user_assigned_identity.n8n.id]
-  }
-
   template {
     min_replicas = 0
     max_replicas = 3
 
     container {
       name   = "n8n"
-      image  = "docker.io/n8nio/n8n:${var.n8n_version}"
+      image  = "docker.io/n8nio/n8n:latest"
       cpu    = 1.0
       memory = "2Gi"
+
+      liveness_probe {
+        transport             = "HTTP"
+        port                  = 5678
+        path                  = "/"
+        initial_delay         = 60
+        interval_seconds      = 30
+        timeout               = 10
+        failure_count_threshold = 3
+      }
+
+      readiness_probe {
+        transport               = "HTTP"
+        port                    = 5678
+        path                    = "/"
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 3
+        success_count_threshold = 1
+      }
+
+      startup_probe {
+        transport               = "HTTP"
+        port                    = 5678
+        path                    = "/"
+        interval_seconds        = 10
+        timeout                 = 5
+        failure_count_threshold = 30
+      }
 
       # Database configuration
       env {
@@ -204,12 +179,17 @@ resource "azurerm_container_app" "n8n" {
 
       env {
         name  = "DB_POSTGRESDB_HOST"
-        value = azurerm_container_app.postgres.ingress[0].fqdn
+        value = azurerm_container_app.postgres.name
       }
 
       env {
         name  = "DB_POSTGRESDB_PORT"
         value = "5432"
+      }
+
+      env {
+        name  = "DB_POSTGRESDB_CONNECTION_TIMEOUT"
+        value = "60000"
       }
 
       env {
@@ -261,6 +241,16 @@ resource "azurerm_container_app" "n8n" {
       }
 
       env {
+        name  = "N8N_LOG_LEVEL"
+        value = "debug"
+      }
+
+      env {
+        name  = "EXECUTIONS_MODE"
+        value = "regular"
+      }
+
+      env {
         name  = "GENERIC_TIMEZONE"
         value = "America/Los_Angeles"
       }
@@ -309,7 +299,6 @@ resource "azurerm_container_app" "n8n" {
   }
 
   depends_on = [
-    azurerm_container_app.postgres,
-    azurerm_role_assignment.keyvault_n8n
+    azurerm_container_app.postgres
   ]
 }
