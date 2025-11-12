@@ -1,9 +1,32 @@
 ---
 description: 'This agent helps deploy n8n to Azure using Terraform and Azure Developer CLI (azd) based on specified requirements.'
-tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Azure MCP/*', 'extensions', 'runSubagent', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'todos', 'ms-azuretools.vscode-azure-github-copilot/azure_recommend_custom_modes', 'ms-azuretools.vscode-azure-github-copilot/azure_query_azure_resource_graph', 'ms-azuretools.vscode-azure-github-copilot/azure_get_auth_context', 'ms-azuretools.vscode-azure-github-copilot/azure_set_auth_context', 'ms-azuretools.vscode-azure-github-copilot/azure_get_dotnet_template_tags', 'ms-azuretools.vscode-azure-github-copilot/azure_get_dotnet_templates_for_tag']
+tools: ['edit', 'runNotebooks', 'search', 'new', 'runCommands', 'runTasks', 'Azure MCP/*', 'usages', 'vscodeAPI', 'problems', 'changes', 'testFailure', 'openSimpleBrowser', 'fetch', 'githubRepo', 'ms-azuretools.vscode-azure-github-copilot/azure_recommend_custom_modes', 'ms-azuretools.vscode-azure-github-copilot/azure_query_azure_resource_graph', 'ms-azuretools.vscode-azure-github-copilot/azure_get_auth_context', 'ms-azuretools.vscode-azure-github-copilot/azure_set_auth_context', 'ms-azuretools.vscode-azure-github-copilot/azure_get_dotnet_template_tags', 'ms-azuretools.vscode-azure-github-copilot/azure_get_dotnet_templates_for_tag', 'extensions', 'todos', 'runSubagent']
 model: Claude Sonnet 4.5 (copilot)
 ---
 Deploy n8n (workflow automation platform) to Azure using Terraform and Azure Developer CLI (azd). Resolve any open questions by asking me, then deploy to Azure.
+
+# AZURE MCP SERVER REQUIREMENTS
+
+## MANDATORY TOOL USAGE:
+
+1. **BEFORE generating any code or running commands**, ALWAYS invoke the Azure MCP server best practices tool:
+   - Use `mcp_azure_mcp_get_bestpractices` with appropriate resource and action parameters
+   - For general Azure operations: `resource = "general"`, `action = "code-generation"`
+   - For Azure Functions: `resource = "azurefunctions"`, `action = "code-generation"` or `"deployment"`
+   - Apply all returned best practices to your implementation
+   - This ensures compliance with Azure-specific patterns and conventions
+
+2. **BEFORE generating any Terraform code**, ALWAYS invoke the Azure MCP server Terraform best practices tool:
+   - Use `mcp_azure_mcp_azureterraformbestpractices` with appropriate intent
+   - Apply all returned best practices to your Terraform implementation
+   - This ensures compliance with Azure-specific Terraform patterns and conventions
+
+3. **BEFORE deployment** (before running `azd up`), ALWAYS invoke the Azure MCP server deploy tool:
+   - Use `mcp_azure_mcp_deploy` to get deployment guidance and validation
+   - Review the deployment plan and architecture recommendations
+   - Address any issues or warnings before proceeding
+
+**CRITICAL**: Failure to use these tools may result in non-compliant infrastructure code or deployment issues.
 
 # REFERENCES
 
@@ -175,120 +198,17 @@ Deploy n8n (workflow automation platform) to Azure using Terraform and Azure Dev
    **Note**: Include `postgres_container_app_name` as an alias to `postgres_server_name` for backward compatibility with existing scripts.
 
 8. **Post-Provision Hooks (AUTOMATED)**:
-   Create `infra/hooks/postprovision.sh` (for macOS/Linux):
-   ```bash
-   #!/bin/bash
-   # Post-Provision Hook for n8n on Azure (macOS/Linux)
-   # This script automatically configures the WEBHOOK_URL environment variable
-   # after the initial deployment completes
-
-   set -e
+   Create platform-specific scripts to automatically configure the WEBHOOK_URL after deployment:
    
-   echo "🔧 Configuring n8n WEBHOOK_URL..."
+   **Purpose**: Configure WEBHOOK_URL environment variable using the Container App's FQDN
+   **Process**: Retrieve Terraform outputs → Get Container App FQDN → Update environment variables
+   **Requirements**: Navigate to azd state directory, use Azure CLI to update container app
    
-   # Navigate to azd's Terraform state directory
-   cd .azure/${AZURE_ENV_NAME}/infra
+   See **POST-PROVISION SCRIPT IMPLEMENTATIONS** section below for complete script code.
    
-   # Retrieve Container App name and Resource Group from Terraform outputs
-   N8N_APP_NAME=$(terraform output -raw n8n_container_app_name)
-   RG_NAME=$(terraform output -raw resource_group_name)
+   **Important**: Make shell scripts executable: `chmod +x infra/hooks/postprovision.sh`
    
-   echo "📡 Retrieving n8n Container App URL..."
-   N8N_FQDN=$(az containerapp show \
-     --name "$N8N_APP_NAME" \
-     --resource-group "$RG_NAME" \
-     --query "properties.configuration.ingress.fqdn" \
-     -o tsv)
-   
-   if [ -z "$N8N_FQDN" ]; then
-     echo "❌ Error: Could not retrieve Container App FQDN"
-     exit 1
-   fi
-   
-   echo "✅ n8n URL: https://$N8N_FQDN"
-   
-   echo "🔄 Updating WEBHOOK_URL environment variable..."
-   az containerapp update \
-     --name "$N8N_APP_NAME" \
-     --resource-group "$RG_NAME" \
-     --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" \
-     --output none
-   
-   echo "✅ WEBHOOK_URL configured successfully!"
-   echo ""
-   echo "🎉 n8n deployment complete!"
-   echo "🌐 Access n8n at: https://$N8N_FQDN"
-   echo ""
-   echo "🔑 Login credentials:"
-   echo "   Username: $(terraform output -raw n8n_basic_auth_user)"
-   echo "   Password: (from your main.tfvars.json)"
-   echo ""
-   echo "⚠️  Important: Save your encryption key securely:"
-   echo "   Run: cd .azure/${AZURE_ENV_NAME}/infra && terraform output -raw n8n_encryption_key"
-   echo ""
-   ```
-   
-   Create `infra/hooks/postprovision.ps1` (for Windows):
-   ```powershell
-   # Post-Provision Hook for n8n on Azure (Windows)
-   # This script automatically configures the WEBHOOK_URL environment variable
-   # after the initial deployment completes
-
-   $ErrorActionPreference = "Stop"
-
-   Write-Host "🔧 Configuring n8n WEBHOOK_URL..." -ForegroundColor Cyan
-
-   # Navigate to azd's Terraform state directory
-   Set-Location ".azure/$env:AZURE_ENV_NAME/infra"
-
-   # Retrieve Container App name and Resource Group from Terraform outputs
-   $N8N_APP_NAME = terraform output -raw n8n_container_app_name
-   $RG_NAME = terraform output -raw resource_group_name
-
-   # Get the Container App FQDN
-   Write-Host "📡 Retrieving n8n Container App URL..." -ForegroundColor Cyan
-   $N8N_FQDN = az containerapp show `
-     --name $N8N_APP_NAME `
-     --resource-group $RG_NAME `
-     --query "properties.configuration.ingress.fqdn" `
-     -o tsv
-
-   if ([string]::IsNullOrEmpty($N8N_FQDN)) {
-     Write-Host "❌ Error: Could not retrieve Container App FQDN" -ForegroundColor Red
-     exit 1
-   }
-
-   Write-Host "✅ n8n URL: https://$N8N_FQDN" -ForegroundColor Green
-
-   # Update the Container App with WEBHOOK_URL environment variable
-   Write-Host "🔄 Updating WEBHOOK_URL environment variable..." -ForegroundColor Cyan
-   az containerapp update `
-     --name $N8N_APP_NAME `
-     --resource-group $RG_NAME `
-     --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" `
-     --output none
-
-   Write-Host "✅ WEBHOOK_URL configured successfully!" -ForegroundColor Green
-   Write-Host ""
-   Write-Host "🎉 n8n deployment complete!" -ForegroundColor Green
-   Write-Host "🌐 Access n8n at: https://$N8N_FQDN" -ForegroundColor Cyan
-   Write-Host ""
-   Write-Host "🔑 Login credentials:" -ForegroundColor Yellow
-   $N8N_USER = terraform output -raw n8n_basic_auth_user
-   Write-Host "   Username: $N8N_USER" -ForegroundColor White
-   Write-Host "   Password: (from your main.tfvars.json)" -ForegroundColor White
-   Write-Host ""
-   Write-Host "⚠️  Important: Save your encryption key securely:" -ForegroundColor Yellow
-   Write-Host "   Run: cd .azure/$env:AZURE_ENV_NAME/infra && terraform output -raw n8n_encryption_key" -ForegroundColor White
-   Write-Host ""
-   ```
-   
-   **Important**: Make the shell script executable:
-   ```bash
-   chmod +x infra/hooks/postprovision.sh
-   ```
-   
-   **Why:** The WEBHOOK_URL is required for n8n to serve static assets correctly. It cannot be set during initial creation due to a circular dependency with the container app's FQDN. The post-provision hook automatically configures this after `azd up` completes. The hook runs from the project root and navigates to `.azure/${AZURE_ENV_NAME}/infra` where azd stores the Terraform state.
+   **Why Required**: WEBHOOK_URL cannot be set during initial creation due to circular dependency with container app FQDN. Post-provision hook automatically configures this after `azd up` completes.
 
 9. **Configuration Files**:
    - Create `infra/main.tfvars.json.example` with password placeholders:
@@ -341,3 +261,122 @@ Deploy n8n (workflow automation platform) to Azure using Terraform and Azure Dev
 ### Outputs & Compatibility:
 - Include `postgres_container_app_name` output as alias to `postgres_server_name` for backward compatibility
 - All outputs referenced in post-provision hooks must exist in `outputs.tf`
+
+---
+
+## POST-PROVISION SCRIPT IMPLEMENTATIONS
+
+### Bash Script (macOS/Linux) - `infra/hooks/postprovision.sh`
+
+```bash
+#!/bin/bash
+# Post-Provision Hook for n8n on Azure (macOS/Linux)
+# This script automatically configures the WEBHOOK_URL environment variable
+# after the initial deployment completes
+
+set -e
+
+echo "🔧 Configuring n8n WEBHOOK_URL..."
+
+# Navigate to azd's Terraform state directory
+cd .azure/${AZURE_ENV_NAME}/infra
+
+# Retrieve Container App name and Resource Group from Terraform outputs
+N8N_APP_NAME=$(terraform output -raw n8n_container_app_name)
+RG_NAME=$(terraform output -raw resource_group_name)
+
+echo "📡 Retrieving n8n Container App URL..."
+N8N_FQDN=$(az containerapp show \
+  --name "$N8N_APP_NAME" \
+  --resource-group "$RG_NAME" \
+  --query "properties.configuration.ingress.fqdn" \
+  -o tsv)
+
+if [ -z "$N8N_FQDN" ]; then
+  echo "❌ Error: Could not retrieve Container App FQDN"
+  exit 1
+fi
+
+echo "✅ n8n URL: https://$N8N_FQDN"
+
+echo "🔄 Updating WEBHOOK_URL environment variable..."
+az containerapp update \
+  --name "$N8N_APP_NAME" \
+  --resource-group "$RG_NAME" \
+  --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" \
+  --output none
+
+echo "✅ WEBHOOK_URL configured successfully!"
+echo ""
+echo "🎉 n8n deployment complete!"
+echo "🌐 Access n8n at: https://$N8N_FQDN"
+echo ""
+echo "🔑 Login credentials:"
+echo "   Username: $(terraform output -raw n8n_basic_auth_user)"
+echo "   Password: (from your main.tfvars.json)"
+echo ""
+echo "⚠️  Important: Save your encryption key securely:"
+echo "   Run: cd .azure/${AZURE_ENV_NAME}/infra && terraform output -raw n8n_encryption_key"
+echo ""
+```
+
+### PowerShell Script (Windows) - `infra/hooks/postprovision.ps1`
+
+```powershell
+# Post-Provision Hook for n8n on Azure (Windows)
+# This script automatically configures the WEBHOOK_URL environment variable
+# after the initial deployment completes
+
+$ErrorActionPreference = "Stop"
+
+Write-Host "🔧 Configuring n8n WEBHOOK_URL..." -ForegroundColor Cyan
+
+# Navigate to azd's Terraform state directory
+Set-Location ".azure/$env:AZURE_ENV_NAME/infra"
+
+# Retrieve Container App name and Resource Group from Terraform outputs
+$N8N_APP_NAME = terraform output -raw n8n_container_app_name
+$RG_NAME = terraform output -raw resource_group_name
+
+# Get the Container App FQDN
+Write-Host "📡 Retrieving n8n Container App URL..." -ForegroundColor Cyan
+$N8N_FQDN = az containerapp show `
+  --name $N8N_APP_NAME `
+  --resource-group $RG_NAME `
+  --query "properties.configuration.ingress.fqdn" `
+  -o tsv
+
+if ([string]::IsNullOrEmpty($N8N_FQDN)) {
+  Write-Host "❌ Error: Could not retrieve Container App FQDN" -ForegroundColor Red
+  exit 1
+}
+
+Write-Host "✅ n8n URL: https://$N8N_FQDN" -ForegroundColor Green
+
+# Update the Container App with WEBHOOK_URL environment variable
+Write-Host "🔄 Updating WEBHOOK_URL environment variable..." -ForegroundColor Cyan
+az containerapp update `
+  --name $N8N_APP_NAME `
+  --resource-group $RG_NAME `
+  --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" `
+  --output none
+
+Write-Host "✅ WEBHOOK_URL configured successfully!" -ForegroundColor Green
+Write-Host ""
+Write-Host "🎉 n8n deployment complete!" -ForegroundColor Green
+Write-Host "🌐 Access n8n at: https://$N8N_FQDN" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "🔑 Login credentials:" -ForegroundColor Yellow
+$N8N_USER = terraform output -raw n8n_basic_auth_user
+Write-Host "   Username: $N8N_USER" -ForegroundColor White
+Write-Host "   Password: (from your main.tfvars.json)" -ForegroundColor White
+Write-Host ""
+Write-Host "⚠️  Important: Save your encryption key securely:" -ForegroundColor Yellow
+Write-Host "   Run: cd .azure/$env:AZURE_ENV_NAME/infra && terraform output -raw n8n_encryption_key" -ForegroundColor White
+Write-Host ""
+```
+
+**Note**: Remember to make the bash script executable after creation:
+```bash
+chmod +x infra/hooks/postprovision.sh
+```

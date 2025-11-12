@@ -1,14 +1,14 @@
-# Main Terraform Infrastructure for n8n on Azure
-# This file defines all Azure resources required for deploying n8n
+# Main Terraform configuration for n8n deployment on Azure
+# Creates Container Apps environment, PostgreSQL Flexible Server, and n8n container
 
-# Generate random suffix for globally unique resource names
+# Generate random suffix for unique resource naming
 resource "random_string" "suffix" {
   length  = 6
   special = false
   upper   = false
 }
 
-# Generate random encryption key for n8n
+# Generate random encryption key for n8n (32 characters)
 resource "random_password" "n8n_encryption_key" {
   length  = 32
   special = true
@@ -26,7 +26,7 @@ resource "azurerm_resource_group" "main" {
   }
 }
 
-# Log Analytics Workspace for monitoring
+# Log Analytics Workspace for Container Apps monitoring
 resource "azurerm_log_analytics_workspace" "main" {
   name                = "log-${var.environment_name}-${random_string.suffix.result}"
   location            = azurerm_resource_group.main.location
@@ -55,15 +55,18 @@ resource "azurerm_container_app_environment" "main" {
 
 # PostgreSQL Flexible Server
 resource "azurerm_postgresql_flexible_server" "main" {
-  name                   = "psql-${var.environment_name}-${random_string.suffix.result}"
-  location               = azurerm_resource_group.main.location
-  resource_group_name    = azurerm_resource_group.main.name
-  version                = "16"
+  name                = "psql-${var.environment_name}-${random_string.suffix.result}"
+  location            = azurerm_resource_group.main.location
+  resource_group_name = azurerm_resource_group.main.name
+
   administrator_login    = var.postgres_user
   administrator_password = var.postgres_password
-  sku_name               = "B_Standard_B1ms"
-  storage_mb             = 32768
-  backup_retention_days  = 7
+
+  sku_name   = "B_Standard_B1ms"
+  storage_mb = 32768
+  version    = "16"
+
+  backup_retention_days = 7
 
   tags = {
     environment = var.environment_name
@@ -71,7 +74,7 @@ resource "azurerm_postgresql_flexible_server" "main" {
   }
 }
 
-# PostgreSQL Firewall Rule - Allow Azure services
+# PostgreSQL Firewall Rule - Allow Azure Services
 resource "azurerm_postgresql_flexible_server_firewall_rule" "allow_azure" {
   name             = "AllowAzureServices"
   server_id        = azurerm_postgresql_flexible_server.main.id
@@ -89,7 +92,7 @@ resource "azurerm_postgresql_flexible_server_database" "main" {
 
 # n8n Container App
 resource "azurerm_container_app" "n8n" {
-  name                         = "ca-n8n-${random_string.suffix.result}"
+  name                         = "ca-n8n-${var.environment_name}-${random_string.suffix.result}"
   container_app_environment_id = azurerm_container_app_environment.main.id
   resource_group_name          = azurerm_resource_group.main.name
   revision_mode                = "Single"
@@ -104,7 +107,7 @@ resource "azurerm_container_app" "n8n" {
       cpu    = 1.0
       memory = "2Gi"
 
-      # Database configuration
+      # Environment variables for n8n configuration
       env {
         name  = "DB_TYPE"
         value = "postgresdb"
@@ -145,7 +148,6 @@ resource "azurerm_container_app" "n8n" {
         secret_name = "postgres-password"
       }
 
-      # n8n configuration
       env {
         name        = "N8N_ENCRYPTION_KEY"
         secret_name = "n8n-encryption-key"
@@ -176,7 +178,8 @@ resource "azurerm_container_app" "n8n" {
         value = "https"
       }
 
-      # Health probes
+      # CRITICAL: Health probes with proper timeouts for n8n startup
+      # n8n requires at least 60 seconds to initialize
       liveness_probe {
         transport               = "HTTP"
         port                    = 5678
@@ -208,7 +211,7 @@ resource "azurerm_container_app" "n8n" {
     }
   }
 
-  # Secrets configuration
+  # Secrets for sensitive configuration
   secret {
     name  = "postgres-password"
     value = var.postgres_password
@@ -224,14 +227,14 @@ resource "azurerm_container_app" "n8n" {
     value = var.n8n_basic_auth_password
   }
 
-  # Ingress configuration
+  # External ingress configuration
   ingress {
     external_enabled = true
     target_port      = 5678
 
     traffic_weight {
-      latest_revision = true
       percentage      = 100
+      latest_revision = true
     }
   }
 
@@ -240,7 +243,7 @@ resource "azurerm_container_app" "n8n" {
     application = "n8n"
   }
 
-  # Ensure database is created before deploying n8n
+  # Ensure database is created before deploying container
   depends_on = [
     azurerm_postgresql_flexible_server_database.main,
     azurerm_postgresql_flexible_server_firewall_rule.allow_azure

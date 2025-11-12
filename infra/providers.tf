@@ -1,9 +1,10 @@
-# Terraform Providers Configuration for n8n on Azure
-# This file configures the required providers and versions for deploying n8n to Azure
+# Terraform providers configuration for n8n deployment on Azure
+# Uses AzureRM provider v4.x with resource provider registration disabled
+# to avoid 409 conflicts during deployment
 
 terraform {
   required_version = ">= 1.5.0"
-
+  
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
@@ -17,13 +18,9 @@ terraform {
 }
 
 provider "azurerm" {
-  features {}
-
-  # CRITICAL: Prevents 409 conflicts during resource provider registration
+  # CRITICAL: Set to "none" to avoid 409 conflicts during deployment
   # Resource providers must be registered manually before running azd up
-  # Run these commands first:
-  #   az provider register --namespace Microsoft.App
-  #   az provider register --namespace Microsoft.DBforPostgreSQL
-  #   az provider register --namespace Microsoft.OperationalInsights
   resource_provider_registrations = "none"
+  
+  features {}
 }

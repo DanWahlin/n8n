@@ -1,19 +1,17 @@
-# Terraform Variables for n8n on Azure
-# This file defines all configurable parameters for the deployment
+# Variables for n8n deployment on Azure
+# Configuration parameters for Container Apps, PostgreSQL, and n8n settings
 
-# Core Azure Configuration
 variable "environment_name" {
-  description = "Name of the azd environment (e.g., 'n8n')"
+  description = "The name of the azd environment"
   type        = string
 }
 
 variable "location" {
-  description = "Azure region for all resources"
+  description = "The Azure region where resources will be deployed"
   type        = string
   default     = "westus"
 }
 
-# PostgreSQL Configuration
 variable "postgres_user" {
   description = "PostgreSQL administrator username"
   type        = string
@@ -32,7 +30,6 @@ variable "postgres_db" {
   default     = "n8n"
 }
 
-# n8n Authentication Configuration
 variable "n8n_basic_auth_active" {
   description = "Enable basic authentication for n8n"
   type        = bool
