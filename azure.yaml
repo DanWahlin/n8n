@@ -1,0 +1,22 @@
+# Azure Developer CLI configuration for n8n deployment
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: n8n
+metadata:
+  template: n8n-azure-terraform
+
+# Terraform infrastructure configuration
+infra:
+  provider: terraform
+  path: infra
+
+# Post-provision hooks to configure WEBHOOK_URL
+# These hooks run automatically after azd up completes
+hooks:
+  postprovision:
+    posix:
+      shell: sh
+      run: ./infra/hooks/postprovision.sh
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/postprovision.ps1
