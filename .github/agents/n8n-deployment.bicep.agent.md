@@ -69,7 +69,6 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
 - Azure Container Apps for serverless n8n hosting
 - Azure Log Analytics for monitoring
 - Azure Database for PostgreSQL Flexible Server (managed database)
-- Azure Key Vault for encryption key storage
 
 ## CRITICAL IMPLEMENTATION STEPS:
 
@@ -78,7 +77,6 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
    az provider register --namespace Microsoft.App
    az provider register --namespace Microsoft.DBforPostgreSQL
    az provider register --namespace Microsoft.OperationalInsights
-   az provider register --namespace Microsoft.KeyVault
    ```
    These commands must be run before `azd up` to avoid 409 conflicts.
 
@@ -88,7 +86,6 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
    - Resource Group with appropriate tags
    - Log Analytics Workspace (SKU: PerGB2018, 30-day retention)
    - Container Apps Environment
-   - Azure Key Vault (with purge protection enabled)
    - Managed Identity for secure access
    - PostgreSQL Flexible Server:
      * Version 16
@@ -127,7 +124,7 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
    N8N_PROTOCOL=https
    ```
 
-4. **Variables (main.parameters.json)**:
+4. **Variables (main.bicep parameters)**:
    - environment_name (required, from azd)
    - location (default: westus)
    - postgres_user (default: n8n)
@@ -136,7 +133,15 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
    - n8n_basic_auth_active (default: true)
    - n8n_basic_auth_user (default: admin)
    - n8n_basic_auth_password (required, sensitive)
-   - n8n_encryption_key (auto-generated using newGuid())
+   - n8n_encryption_key (auto-generated using newGuid() as parameter default value)
+   
+   **IMPORTANT**: The `n8nEncryptionKey` parameter must be defined in main.bicep with `newGuid()` as its default value:
+   ```bicep
+   @secure()
+   @description('n8n encryption key (auto-generated if not provided)')
+   param n8nEncryptionKey string = newGuid()
+   ```
+   This is the ONLY valid location for `newGuid()` - it cannot be used in variable declarations or other expressions.
 
 5. **Health Probe Configuration (CRITICAL)**:
    In `main.bicep`, configure health probes with proper timeouts to prevent premature container failures:
@@ -189,27 +194,25 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
    output postgresContainerAppName string = postgresServer.name  // Alias for compatibility
    output postgresFqdn string = postgresServer.properties.fullyQualifiedDomainName
    output postgresDatabaseName string = postgresDatabase.name
-   output keyVaultName string = keyVault.name
    output managedIdentityName string = managedIdentity.name
    output n8nBasicAuthUser string = n8nBasicAuthUser
    ```
    **Note**: Include `postgresContainerAppName` as an alias to `postgresServerName` for backward compatibility with existing scripts.
 
 7. **Post-Provision Hooks (AUTOMATED)**:
-   Create platform-specific scripts to automatically configure the WEBHOOK_URL and backup encryption key after deployment:
+   Create platform-specific scripts to automatically configure the WEBHOOK_URL after deployment:
    
    **Purpose**: 
    - Configure WEBHOOK_URL environment variable using the Container App's FQDN
-   - Backup n8n encryption key to Key Vault for secure storage
    
-   **Process**: Retrieve azd outputs → Get Container App FQDN → Update environment variables → Backup encryption key
-   **Requirements**: Use azd env get-value, Azure CLI, proper RBAC permissions
+   **Process**: Retrieve azd outputs → Get Container App FQDN → Update environment variables
+   **Requirements**: Use azd env get-value, Azure CLI
    
    See **POST-PROVISION SCRIPT IMPLEMENTATIONS** section below for complete script code.
    
    **Important**: Make shell scripts executable: `chmod +x infra/hooks/postprovision.sh`
    
-   **Why Required**: WEBHOOK_URL cannot be set during initial creation due to circular dependency with container app FQDN. Post-provision hook automatically configures this and securely backs up the encryption key after `azd up` completes.
+   **Why Required**: WEBHOOK_URL cannot be set during initial creation due to circular dependency with container app FQDN. Post-provision hook automatically configures this after `azd up` completes.
 
 8. **Configuration Files**:
    - Create `infra/main.parameters.json` with parameter values:
@@ -257,14 +260,14 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
 - Resource provider registration prevents 409 conflicts during deployment
 - Azure providers must be registered manually **before** running `azd up`
 - azd manages Bicep deployment history and parameter files locally
-- Use `newGuid()` function for generating n8n encryption key in Bicep parameters
-- Key Vault purge protection is **mandatory** - set `enablePurgeProtection: true`
+- **CRITICAL**: `newGuid()` can ONLY be used as a parameter default value, never in variable declarations or expressions
+- The n8n encryption key is auto-generated via parameter default: `param n8nEncryptionKey string = newGuid()`
+- PostgreSQL server does NOT require Managed Identity parameter (Entra ID auth is enabled via server properties)
 
 ### Security & Access Management:
 - Use Managed Identity for secure access to Azure resources
 - Enable Entra ID authentication on PostgreSQL Flexible Server
-- Store encryption key securely in Key Vault with proper RBAC
-- Wait 10-15 seconds after role assignments for Azure RBAC propagation
+- n8n encryption key is stored as a container app secret
 - n8n still requires password authentication (no native Managed Identity support)
 
 ### Deployment Automation:
@@ -287,7 +290,6 @@ Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Develop
 #!/bin/bash
 # Post-Provision Hook for n8n on Azure (macOS/Linux)
 # This script automatically configures the WEBHOOK_URL environment variable
-# and backs up the encryption key after the initial deployment completes
 
 set -e
 
@@ -296,7 +298,6 @@ echo "🔧 Configuring n8n post-deployment setup..."
 # Retrieve deployment outputs using azd
 N8N_APP_NAME=$(azd env get-value N8N_CONTAINER_APP_NAME)
 RG_NAME=$(azd env get-value RESOURCE_GROUP_NAME)
-KEY_VAULT_NAME=$(azd env get-value KEY_VAULT_NAME)
 
 echo "📡 Retrieving n8n Container App URL..."
 N8N_FQDN=$(az containerapp show \
@@ -319,34 +320,6 @@ az containerapp update \
   --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" \
   --output none
 
-echo "🔑 Backing up encryption key to Key Vault..."
-
-# Get current user for RBAC assignment
-CURRENT_USER=$(az account show --query user.name -o tsv)
-
-# Grant Key Vault Secrets Officer role to current user
-az role assignment create \
-  --assignee "$CURRENT_USER" \
-  --role "Key Vault Secrets Officer" \
-  --scope "/subscriptions/$(az account show --query id -o tsv)/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KEY_VAULT_NAME" \
-  --output none
-
-echo "⏳ Waiting for RBAC propagation..."
-sleep 15
-
-# Retrieve encryption key from container app and store in Key Vault
-N8N_ENCRYPTION_KEY=$(az containerapp secret show \
-  --name "$N8N_APP_NAME" \
-  --resource-group "$RG_NAME" \
-  --secret-name "n8n-encryption-key" \
-  --query "value" -o tsv)
-
-az keyvault secret set \
-  --vault-name "$KEY_VAULT_NAME" \
-  --name "n8n-encryption-key" \
-  --value "$N8N_ENCRYPTION_KEY" \
-  --output none
-
 echo "✅ Post-deployment configuration completed successfully!"
 echo ""
 echo "🎉 n8n deployment complete!"
@@ -356,8 +329,6 @@ echo "🔑 Login credentials:"
 echo "   Username: $(azd env get-value N8N_BASIC_AUTH_USER)"
 echo "   Password: (from your main.parameters.json)"
 echo ""
-echo "🔐 Encryption key backed up to Key Vault: $KEY_VAULT_NAME"
-echo ""
 ```
 
 ### PowerShell Script (Windows) - `infra/hooks/postprovision.ps1`
@@ -365,7 +336,6 @@ echo ""
 ```powershell
 # Post-Provision Hook for n8n on Azure (Windows)
 # This script automatically configures the WEBHOOK_URL environment variable
-# and backs up the encryption key after the initial deployment completes
 
 $ErrorActionPreference = "Stop"
 
@@ -374,7 +344,6 @@ Write-Host "🔧 Configuring n8n post-deployment setup..." -ForegroundColor Cyan
 # Retrieve deployment outputs using azd
 $N8N_APP_NAME = azd env get-value N8N_CONTAINER_APP_NAME
 $RG_NAME = azd env get-value RESOURCE_GROUP_NAME
-$KEY_VAULT_NAME = azd env get-value KEY_VAULT_NAME
 
 # Get the Container App FQDN
 Write-Host "📡 Retrieving n8n Container App URL..." -ForegroundColor Cyan
@@ -399,35 +368,6 @@ az containerapp update `
   --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN" `
   --output none
 
-Write-Host "🔑 Backing up encryption key to Key Vault..." -ForegroundColor Cyan
-
-# Get current user for RBAC assignment
-$CURRENT_USER = az account show --query user.name -o tsv
-$SUBSCRIPTION_ID = az account show --query id -o tsv
-
-# Grant Key Vault Secrets Officer role to current user
-az role assignment create `
-  --assignee $CURRENT_USER `
-  --role "Key Vault Secrets Officer" `
-  --scope "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.KeyVault/vaults/$KEY_VAULT_NAME" `
-  --output none
-
-Write-Host "⏳ Waiting for RBAC propagation..." -ForegroundColor Yellow
-Start-Sleep -Seconds 15
-
-# Retrieve encryption key from container app and store in Key Vault
-$N8N_ENCRYPTION_KEY = az containerapp secret show `
-  --name $N8N_APP_NAME `
-  --resource-group $RG_NAME `
-  --secret-name "n8n-encryption-key" `
-  --query "value" -o tsv
-
-az keyvault secret set `
-  --vault-name $KEY_VAULT_NAME `
-  --name "n8n-encryption-key" `
-  --value $N8N_ENCRYPTION_KEY `
-  --output none
-
 Write-Host "✅ Post-deployment configuration completed successfully!" -ForegroundColor Green
 Write-Host ""
 Write-Host "🎉 n8n deployment complete!" -ForegroundColor Green
@@ -437,8 +377,6 @@ Write-Host "🔑 Login credentials:" -ForegroundColor Yellow
 $N8N_USER = azd env get-value N8N_BASIC_AUTH_USER
 Write-Host "   Username: $N8N_USER" -ForegroundColor White
 Write-Host "   Password: (from your main.parameters.json)" -ForegroundColor White
-Write-Host ""
-Write-Host "🔐 Encryption key backed up to Key Vault: $KEY_VAULT_NAME" -ForegroundColor Cyan
 Write-Host ""
 ```
 

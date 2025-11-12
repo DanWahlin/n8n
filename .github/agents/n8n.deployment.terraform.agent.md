@@ -253,6 +253,10 @@ Deploy n8n (workflow automation platform) to Azure using Terraform and Azure Dev
 - azd manages Terraform state locally - use `main.tfvars.json` (not `terraform.tfvars.json`)
 - Use `random_password` (not `random_string`) for n8n encryption key generation
 
+### Security & Access Management:
+- n8n encryption key is stored as a container app secret
+- n8n requires password authentication (no native Managed Identity support)
+
 ### Deployment Automation:
 - azd hooks automate post-deployment configuration, eliminating manual steps
 - Post-provision scripts must be executable: `chmod +x infra/hooks/postprovision.sh`

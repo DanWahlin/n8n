@@ -1,29 +1,28 @@
-# n8n on Azure with Terraform
+# n8n on Azure Container Apps
 
-Deploy [n8n](https://n8n.io) (workflow automation platform) to Azure using Terraform and Azure Developer CLI (azd).
+Deploy n8n (workflow automation platform) to Azure using Bicep and Azure Developer CLI (azd).
 
 ## Architecture
 
-This deployment creates a production-ready n8n instance with:
+This deployment creates a production-ready n8n instance on Azure with:
 
-- **Azure Container Apps** - Serverless n8n hosting with scale-to-zero (0-3 replicas)
-- **Azure Database for PostgreSQL Flexible Server** - Managed database (B_Standard_B1ms, 32GB storage)
-- **Azure Log Analytics** - Monitoring and logging (30-day retention)
-- **HTTPS Ingress** - Secure external access with Azure-managed domain
-- **Basic Authentication** - Built-in user authentication
+- **Azure Container Apps**: Serverless hosting for n8n with scale-to-zero capability
+- **Azure Database for PostgreSQL Flexible Server**: Managed database for persistent storage
+- **Azure Log Analytics**: Centralized monitoring and logging
+- **Managed Identity**: Secure authentication to Azure resources
 
 ## Prerequisites
 
-1. **Azure CLI** - [Install](https://learn.microsoft.com/cli/azure/install-azure-cli)
-2. **Azure Developer CLI (azd)** - [Install](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
-3. **Terraform** - [Install](https://developer.hashicorp.com/terraform/install)
-4. **Azure Subscription** - [Free account](https://azure.microsoft.com/free/)
+1. **Azure Subscription**: Active Azure subscription
+2. **Azure CLI**: [Install Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
+3. **Azure Developer CLI (azd)**: [Install azd](https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/install-azd)
+4. **Bash or PowerShell**: For running deployment scripts
 
 ## Quick Start
 
 ### 1. Register Azure Resource Providers
 
-**CRITICAL**: Run these commands before deployment to avoid 409 conflicts:
+**IMPORTANT**: Run these commands before deployment to avoid 409 conflicts:
 
 ```bash
 az provider register --namespace Microsoft.App
@@ -31,421 +30,531 @@ az provider register --namespace Microsoft.DBforPostgreSQL
 az provider register --namespace Microsoft.OperationalInsights
 ```
 
-Registration takes 2-5 minutes. Verify with:
-```bash
-az provider show --namespace Microsoft.App --query "registrationState"
-```
+### 2. Configure Parameters
 
-### 2. Configure Secrets
-
-Create configuration file from template:
+Copy the example parameters file and update with your secure passwords:
 
 ```bash
-cp infra/main.tfvars.json.example infra/main.tfvars.json
+cp infra/main.parameters.json.example infra/main.parameters.json
 ```
 
-Edit `infra/main.tfvars.json` with strong passwords:
+Edit `infra/main.parameters.json` and replace the placeholder passwords with strong passwords:
 
 ```json
 {
-  "postgres_password": "YourStrongPassword123!",
-  "n8n_basic_auth_password": "YourN8nPassword456!"
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "postgresPassword": {
+      "value": "YOUR_SECURE_POSTGRES_PASSWORD"
+    },
+    "n8nBasicAuthPassword": {
+      "value": "YOUR_SECURE_N8N_PASSWORD"
+    }
+  }
 }
 ```
 
-**Security Notes**:
-- Use passwords with 16+ characters, mixed case, numbers, and symbols
-- Never commit `main.tfvars.json` to version control (already in `.gitignore`)
-- n8n encryption key is auto-generated during deployment
-
-### 3. Initialize Environment
+### 3. Deploy to Azure
 
 ```bash
-azd env new n8n
-```
+# Initialize azd environment (first time only)
+azd init
 
-This creates environment configuration in `.azure/n8n/`.
+# When prompted, enter environment name: n8n
+# Select region: westus (or your preferred region)
 
-### 4. Deploy to Azure
-
-```bash
+# Deploy infrastructure and configure n8n
 azd up
 ```
 
-This will:
-1. Provision Azure resources (5-10 minutes)
-2. Deploy n8n container
-3. Configure WEBHOOK_URL automatically via post-provision hook
+The deployment will:
+1. Create all Azure resources (Container Apps, PostgreSQL, Log Analytics)
+2. Deploy the n8n container
+3. Automatically configure WEBHOOK_URL via post-provision hooks
 
-## Post-Deployment
+### 4. Access n8n
 
-### Access n8n
-
-After deployment completes, the output shows:
+After deployment completes, you'll see output similar to:
 
 ```
 🎉 n8n deployment complete!
-🌐 Access n8n at: https://ca-n8n-n8n-xxxxxx.region.azurecontainerapps.io
+🌐 Access n8n at: https://ca-n8n-xxxxxx.region.azurecontainerapps.io
+🔑 Login credentials:
+   Username: admin
+   Password: (from your main.parameters.json)
 ```
 
-Login credentials:
-- **Username**: `admin` (default, configurable in `variables.tf`)
-- **Password**: From your `main.tfvars.json`
-
-### Retrieve Encryption Key
-
-**IMPORTANT**: Save your encryption key securely before creating workflows:
-
-```bash
-cd .azure/n8n/infra
-terraform output -raw n8n_encryption_key
-```
-
-Store this in a password manager - it's required for data encryption.
-
-### View All Outputs
-
-```bash
-cd .azure/n8n/infra
-terraform output
-```
+Open the URL in your browser and log in with the credentials.
 
 ## Configuration
 
 ### Environment Variables
 
-Customize in `infra/variables.tf`:
+The deployment automatically configures these critical n8n environment variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `location` | `westus` | Azure region |
-| `postgres_user` | `n8n` | Database admin username |
-| `postgres_db` | `n8n` | Database name |
-| `n8n_basic_auth_active` | `true` | Enable basic auth |
-| `n8n_basic_auth_user` | `admin` | n8n username |
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `DB_TYPE` | `postgresdb` | Database type |
+| `DB_POSTGRESDB_HOST` | Azure PostgreSQL FQDN | Database server address |
+| `DB_POSTGRESDB_SSL_ENABLED` | `true` | Enable SSL for Azure PostgreSQL |
+| `DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED` | `false` | Azure PostgreSQL certificate compatibility |
+| `DB_POSTGRESDB_CONNECTION_TIMEOUT` | `60000` | 60-second timeout for cold starts |
+| `N8N_ENCRYPTION_KEY` | Auto-generated | Encryption key for credentials |
+| `N8N_BASIC_AUTH_ACTIVE` | `true` | Enable basic authentication |
+| `WEBHOOK_URL` | Auto-configured | Base URL for webhooks (set by post-provision hook) |
 
-### Scaling Configuration
+### Scaling
 
-n8n Container App auto-scales (0-3 replicas):
-- **Scale to Zero**: Enabled for cost savings
-- **CPU**: 1.0 core per replica
-- **Memory**: 2Gi per replica
+The Container App is configured with:
+- **Min replicas**: 0 (scale-to-zero for cost savings)
+- **Max replicas**: 3
+- **CPU**: 1.0 core
+- **Memory**: 2 GiB
+- **Auto-scaling**: Based on HTTP requests (100 concurrent requests per replica)
 
-Modify in `infra/main.tf`:
+### Health Probes
 
-```hcl
-template {
-  min_replicas = 0  # Change to 1 to always keep running
-  max_replicas = 3  # Increase for higher load
-  
-  container {
-    cpu    = 1.0   # Adjust CPU allocation
-    memory = "2Gi" # Adjust memory allocation
-  }
-}
-```
+Critical health probe configuration ensures n8n starts successfully:
+
+- **Startup Probe**: 5 minutes maximum startup time (30 failures × 10s)
+- **Liveness Probe**: 60-second initial delay, checked every 30 seconds
+- **Readiness Probe**: Checked every 10 seconds
 
 ## Cost Breakdown
 
-**Estimated monthly cost: $25-40** (with scale-to-zero)
+**Estimated Monthly Cost** (Development environment):
 
-| Resource | SKU | Cost |
-|----------|-----|------|
-| PostgreSQL Flexible Server | B_Standard_B1ms | ~$15/month |
-| Container Apps Environment | Consumption | ~$0/month (base) |
-| n8n Container App | 1 vCPU, 2Gi | ~$10-25/month (varies with usage) |
-| Log Analytics | PerGB2018 | ~$0-2/month (30-day retention) |
+| Resource | SKU | Estimated Cost |
+|----------|-----|----------------|
+| Azure Container Apps | Consumption (1 vCPU, 2 GiB) | ~$30-60/month* |
+| PostgreSQL Flexible Server | B_Standard_B1ms (32 GB) | ~$15-25/month |
+| Log Analytics | PerGB2018 (30-day retention) | ~$5-10/month |
+| **Total** | | **~$50-95/month** |
 
-**Cost Optimization Tips**:
-- Scale-to-zero minimizes container costs during inactivity
-- Burstable PostgreSQL tier reduces database costs
-- Monitor with Azure Cost Management
+*Costs vary based on actual usage. Scale-to-zero reduces costs when idle.
+
+**Cost Optimization Tips:**
+- Container Apps scale to zero when idle (no compute charges)
+- Use Azure Cost Management to track actual spending
+- Consider reserved instances for production workloads
 
 ## Troubleshooting
 
-### Container Not Starting
+### Container Fails to Start
 
-Check health probe configuration in `infra/main.tf`:
-- Liveness probe has 60s `initial_delay` (n8n needs time to start)
-- Startup probe allows 5 minutes with 30 failure threshold
+**Symptom**: Container shows "CrashLoopBackOff" or repeatedly restarts
 
-View container logs:
+**Solution**: This is usually due to insufficient startup time. The deployment includes proper health probe configuration:
+- Startup probe allows up to 5 minutes for initialization
+- Liveness probe waits 60 seconds before first check
 
+Check logs:
 ```bash
-az containerapp logs show \
-  --name <container-app-name> \
-  --resource-group <resource-group-name> \
-  --follow
+azd env get-value N8N_CONTAINER_APP_NAME
+az containerapp logs show --name <container-app-name> --resource-group <resource-group> --follow
 ```
 
 ### Database Connection Issues
 
-Verify PostgreSQL connectivity:
+**Symptom**: n8n cannot connect to PostgreSQL
 
-1. Check firewall rule allows Azure services (0.0.0.0)
-2. Confirm SSL is enabled (`DB_POSTGRESDB_SSL_ENABLED=true`)
-3. Verify FQDN is used (not internal name)
+**Solution**: Verify:
+1. Firewall rule allows Azure services (configured automatically)
+2. SSL is enabled (`DB_POSTGRESDB_SSL_ENABLED=true`)
+3. Connection timeout is sufficient (60 seconds)
+
+Check PostgreSQL logs:
+```bash
+az postgres flexible-server show --name <server-name> --resource-group <resource-group>
+```
 
 ### WEBHOOK_URL Not Set
 
-Post-provision hook should set this automatically. If missing, manually update:
+**Symptom**: Webhooks not working, static assets not loading
+
+**Solution**: The post-provision hook should set this automatically. If missing, manually update:
 
 ```bash
-cd .azure/n8n/infra
-N8N_APP_NAME=$(terraform output -raw n8n_container_app_name)
-RG_NAME=$(terraform output -raw resource_group_name)
+# Get values from azd
+N8N_APP_NAME=$(azd env get-value N8N_CONTAINER_APP_NAME)
+RG_NAME=$(azd env get-value RESOURCE_GROUP_NAME)
 N8N_FQDN=$(az containerapp show --name "$N8N_APP_NAME" --resource-group "$RG_NAME" --query "properties.configuration.ingress.fqdn" -o tsv)
 
+# Update environment variable
 az containerapp update \
   --name "$N8N_APP_NAME" \
   --resource-group "$RG_NAME" \
   --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN"
 ```
 
-### Provider Registration Errors (409)
+### View Application Logs
 
-If you see "ResourceProviderNotRegistered" errors:
+```bash
+# Get current environment name
+azd env list
+
+# View logs
+azd env set <environment-name>
+az containerapp logs show \
+  --name $(azd env get-value N8N_CONTAINER_APP_NAME) \
+  --resource-group $(azd env get-value RESOURCE_GROUP_NAME) \
+  --follow
+```
+
+## Cleanup
+
+To delete all Azure resources:
+
+```bash
+azd down --purge
+```
+
+This will remove:
+- Resource group and all contained resources
+- azd environment configuration
+- Local state files
+
+## Project Structure
+
+```
+.
+├── azure.yaml                           # Azure Developer CLI configuration
+├── infra/
+│   ├── main.bicep                      # Main infrastructure template
+│   ├── abbreviations.json              # Azure resource naming conventions
+│   ├── main.parameters.json            # Deployment parameters (gitignored)
+│   ├── main.parameters.json.example    # Example parameters file
+│   ├── modules/
+│   │   ├── container-apps-environment.bicep
+│   │   ├── log-analytics.bicep
+│   │   ├── managed-identity.bicep
+│   │   ├── n8n-container-app.bicep
+│   │   ├── postgres-database.bicep
+│   │   └── postgres-server.bicep
+│   └── hooks/
+│       ├── postprovision.sh            # Post-deployment hook (macOS/Linux)
+│       └── postprovision.ps1           # Post-deployment hook (Windows)
+└── README.md
+```
+
+## Security Best Practices
+
+1. **Strong Passwords**: Use complex passwords for PostgreSQL and n8n
+2. **Managed Identity**: Container Apps use Managed Identity for Azure resource access
+3. **SSL/TLS**: All connections use HTTPS and SSL (PostgreSQL)
+4. **Secrets Management**: Sensitive values stored as Container App secrets
+5. **Network Security**: PostgreSQL allows only Azure service connections
+
+## Key Learnings & Success Factors
+
+### Database & Connectivity
+- Always use PostgreSQL server FQDN with SSL enabled
+- Set connection timeout to 60 seconds for cold starts
+- Azure PostgreSQL requires `SSL_REJECT_UNAUTHORIZED=false`
+
+### Health Probes (Critical)
+- Liveness probe MUST have 60-second initial delay
+- Startup probe MUST allow 5+ minutes (30 failures × 10s)
+- Proper health probe configuration prevents CrashLoopBackOff errors
+
+### WEBHOOK_URL Configuration
+- Auto-configured via post-provision hooks
+- Required for proper static asset serving
+- Cannot be set during initial creation (circular dependency)
+
+### Deployment Automation
+- Post-provision hooks eliminate manual configuration
+- Resource providers must be registered before `azd up`
+- Use `azd env get-value` to retrieve deployment outputs
+
+## Support & Documentation
+
+- **n8n Documentation**: https://docs.n8n.io/
+- **Azure Container Apps**: https://learn.microsoft.com/en-us/azure/container-apps/
+- **Azure Database for PostgreSQL**: https://learn.microsoft.com/en-us/azure/postgresql/
+- **Azure Developer CLI**: https://learn.microsoft.com/en-us/azure/developer/azure-developer-cli/
+
+## License
+
+MIT on Azure - Deployment Guide
+
+Deploy [n8n](https://n8n.io) (workflow automation platform) to Azure using Bicep and Azure Developer CLI (azd).
+
+## 🏗️ Architecture
+
+This deployment creates a production-ready n8n instance on Azure with the following infrastructure:
+
+- **Azure Container Apps**: Serverless hosting for n8n with scale-to-zero capability
+- **Azure Database for PostgreSQL Flexible Server**: Managed database service for persistent storage
+- **Azure Log Analytics**: Monitoring and diagnostics
+- **User-Assigned Managed Identity**: Secure access to Azure resources
+- **Azure Container Registry**: Container image management
+
+## 📋 Prerequisites
+
+Before deploying, ensure you have the following installed:
+
+1. **Azure CLI** (`az`)
+   ```bash
+   # macOS
+   brew install azure-cli
+   
+   # Verify installation
+   az --version
+   ```
+
+2. **Azure Developer CLI** (`azd`)
+   ```bash
+   # macOS
+   brew install azd
+   
+   # Verify installation
+   azd version
+   ```
+
+3. **Azure Subscription**
+   - An active Azure subscription with permissions to create resources
+   - Login to Azure: `az login`
+
+## 🚀 Deployment Steps
+
+### Step 1: Register Azure Resource Providers
+
+**CRITICAL**: Register these providers before deployment to avoid 409 conflicts:
 
 ```bash
 az provider register --namespace Microsoft.App
 az provider register --namespace Microsoft.DBforPostgreSQL
 az provider register --namespace Microsoft.OperationalInsights
+az provider register --namespace Microsoft.ContainerRegistry
 ```
 
-Wait 2-5 minutes and retry deployment.
+Verify registration status:
+```bash
+az provider show --namespace Microsoft.App --query "registrationState"
+```
 
-## Management Commands
+### Step 2: Configure Deployment Parameters
 
-### Update n8n Container
+Edit `infra/main.parameters.json` and replace the placeholder passwords:
+
+```json
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "postgresPassword": {
+      "value": "YOUR_STRONG_POSTGRES_PASSWORD_HERE"
+    },
+    "n8nBasicAuthPassword": {
+      "value": "YOUR_STRONG_N8N_PASSWORD_HERE"
+    }
+  }
+}
+```
+
+**Password Requirements**:
+- At least 12 characters
+- Mix of uppercase, lowercase, numbers, and symbols
+- No dictionary words
+
+### Step 3: Initialize Azure Developer CLI Environment
 
 ```bash
-azd deploy
+# Initialize azd with environment name 'n8n'
+azd init -e n8n
+
+# Set the Azure region (default: westus)
+azd env set AZURE_LOCATION westus
 ```
 
-### View Infrastructure State
+### Step 4: Deploy to Azure
 
 ```bash
-cd .azure/n8n/infra
-terraform state list
-terraform show
-```
-
-### Destroy Resources
-
-```bash
-azd down
-```
-
-**Warning**: This deletes all resources including the database. Backup data first.
-
-## Security Best Practices
-
-1. **Rotate Passwords**: Change `postgres_password` and `n8n_basic_auth_password` regularly
-2. **Encryption Key**: Store `n8n_encryption_key` in Azure Key Vault or password manager
-3. **Network Security**: Consider Azure Virtual Network integration for production
-4. **Monitoring**: Enable Azure Monitor alerts for container restarts and errors
-5. **Backup**: Configure PostgreSQL backup retention (default: 7 days)
-
-## Additional Resources
-
-- [n8n Documentation](https://docs.n8n.io)
-- [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/)
-- [Azure PostgreSQL Flexible Server](https://learn.microsoft.com/azure/postgresql/flexible-server/)
-- [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
-
-## License
-
-This deployment template is provided as-is. n8n is licensed under the [Sustainable Use License](https://github.com/n8n-io/n8n/blob/master/LICENSE.md). on Azure - Automated Deployment with GitHub Copilot Agents
-
-Deploy [n8n](https://n8n.io) workflow automation platform to Azure using specialized GitHub Copilot agents that handle everything for you.
-
-## What Are These Agents?
-
-This repository includes two expert GitHub Copilot agents located in `.github/agents/` that **completely automate** the deployment of n8n to Azure. No manual infrastructure coding required. Just activate an agent and follow along.
-
----
-
-## 🚀 Available Agents
-
-### 1. **Terraform Deployment Agent** (`n8n.deployment.terraform.agent.md`)
-
-Deploys n8n using **Terraform** and Azure Developer CLI (azd).
-
-**What It Builds:**
-- Azure Container Apps (serverless n8n hosting, 0-3 replicas, scale-to-zero)
-- Azure Database for PostgreSQL Flexible Server (managed database)
-- Azure Log Analytics (monitoring)
-- Complete Terraform infrastructure code
-- Health probes with proper timeouts for n8n startup
-- Automated post-provision hooks for WEBHOOK_URL configuration
-- Secure secrets management
-
-**Deployment Details:**
-- **Region**: westus
-- **Database**: PostgreSQL 16, B_Standard_B1ms SKU, 32GB storage
-- **Infrastructure**: Terraform with local state (managed by azd)
-- **Environment**: Development (cost-optimized)
-
----
-
-### 2. **Bicep Deployment Agent** (`n8n-deployment.bicep.agent.md`)
-
-Deploys n8n using **Bicep** and Azure Developer CLI (azd).
-
-**What It Builds:**
-- Azure Container Apps (serverless n8n hosting with scale-to-zero)
-- Azure Database for PostgreSQL Flexible Server (SSL/TLS encryption)
-- Azure Key Vault (encryption key backup)
-- Azure Log Analytics (monitoring)
-- Managed Identity (secure resource access)
-- Complete Bicep infrastructure templates
-- Cross-platform post-provision hooks (.sh and .ps1)
-- RBAC permissions and role assignments
-
-**Deployment Details:**
-- **Region**: westus3
-- **Database**: PostgreSQL Flexible Server with SSL
-- **Infrastructure**: Bicep with azd-managed deployment
-- **Environment**: Development (cost-optimized)
-
----
-
-## 📋 Prerequisites
-
-Before using an agent, install:
-
-- [Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli) v2.50.0+
-- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) v1.5.0+
-- [Terraform](https://terraform.io/downloads) v1.5.0+ (for Terraform agent only)
-- Active Azure subscription
-
-**Quick Install (macOS with Homebrew):**
-```bash
-brew install azure-cli azd
-brew tap hashicorp/tap && brew install hashicorp/tap/terraform  # Terraform agent only
-```
-
-**Quick Install (Windows with Winget):**
-```powershell
-winget install Microsoft.AzureCLI Microsoft.Azd
-winget install Hashicorp.Terraform  # Terraform agent only
-```
-
----
-
-## 🎯 How to Use an Agent
-
-Select one of the n8n agents from the GitHub Copilot chat window's drop-down (bottom of screen).
-
----
-
-## ✨ What the Agent Does
-
-Once activated, the agent will:
-
-1. ✅ Generate all infrastructure code (Terraform/Bicep files)
-2. ✅ Create configuration files (`azure.yaml`, `.gitignore`, example configs)
-3. ✅ Generate secure secrets (encryption keys, passwords)
-4. ✅ Provide step-by-step deployment commands
-5. ✅ Configure health probes and monitoring
-6. ✅ Set up automated post-provision hooks
-7. ✅ Generate comprehensive documentation
-8. ✅ Guide you through troubleshooting if needed
-
-**You don't write any code—the agent does everything.**
-
----
-
-## 📝 Quick Start Example
-
-```bash
-# 1. Open GitHub Copilot Chat and activate the Terraform agent
-"Deploy n8n to Azure using Terraform"
-
-# 2. The agent generates all files automatically
-
-# 3. Follow the agent's instructions (typically):
-az login
-azd auth login
+# Deploy infrastructure and application
 azd up
-
-# 4. Access your n8n instance at the URL provided
 ```
 
----
+This command will:
+1. Create all Azure resources defined in Bicep
+2. Deploy the n8n container to Azure Container Apps
+3. Run post-provision hooks to configure WEBHOOK_URL
+4. Backup the encryption key to Key Vault
 
-## 🔑 Key Differences Between Agents
+**Deployment time**: Approximately 10-15 minutes
 
-| Feature | Terraform Agent | Bicep Agent |
-|---------|----------------|-------------|
-| **IaC Language** | Terraform (HCL) | Bicep (Azure-native) |
-| **State Management** | Local (via azd) | Azure-managed |
-| **Secrets Storage** | Container App secrets | Key Vault + Container App |
-| **Managed Identity** | Not configured | Configured for Key Vault |
-| **Encryption Key Backup** | Manual retrieval | Automatic to Key Vault |
-| **Region** | westus | westus3 |
-| **Best For** | Multi-cloud, HCL familiarity | Azure-native, Key Vault integration |
+### Step 5: Access n8n
 
-**Choose Terraform** if you prefer HCL or plan multi-cloud deployments.  
-**Choose Bicep** if you prefer Azure-native tooling and want Key Vault integration.
+After deployment completes, you'll see output like:
 
----
+```
+🎉 n8n deployment complete!
+🌐 Access n8n at: https://azca<unique-id>.westus.azurecontainerapps.io
 
-## 💰 Estimated Monthly Cost
+🔑 Login credentials:
+   Username: admin
+   Password: (from your main.parameters.json)
+```
 
-**Development Environment (Low Usage - 4 hours/day):**
-- Container Apps: ~$15-20
-- PostgreSQL Flexible Server: ~$12-15
-- Storage: ~$4
-- Log Analytics: ~$5
-- **Total**: ~$36-44/month
+Navigate to the URL and log in with the credentials from your parameters file.
 
-**Production Environment (24/7):**
-- Container Apps: ~$90-120
-- PostgreSQL Flexible Server: ~$12-15
-- Storage: ~$4
-- Log Analytics: ~$15
-- **Total**: ~$121-154/month
+## 🔧 Configuration
 
-> Scale-to-zero capability minimizes costs when n8n is idle.
+### Environment Variables
 
----
+The following environment variables are automatically configured:
 
-## 🛡️ What the Agents Handle for You
+| Variable | Value | Description |
+|----------|-------|-------------|
+| `DB_TYPE` | `postgresdb` | Database type |
+| `DB_POSTGRESDB_HOST` | `<server>.postgres.database.azure.com` | PostgreSQL FQDN |
+| `DB_POSTGRESDB_SSL_ENABLED` | `true` | SSL connection required |
+| `DB_POSTGRESDB_PORT` | `5432` | PostgreSQL port |
+| `DB_POSTGRESDB_DATABASE` | `n8n` | Database name |
+| `DB_POSTGRESDB_USER` | `n8n` | Database username |
+| `N8N_ENCRYPTION_KEY` | Auto-generated | 32-character encryption key |
+| `N8N_BASIC_AUTH_ACTIVE` | `true` | Enable basic auth |
+| `N8N_BASIC_AUTH_USER` | `admin` | Login username |
+| `N8N_PORT` | `5678` | n8n port |
+| `N8N_PROTOCOL` | `https` | Protocol |
+| `WEBHOOK_URL` | Auto-configured | Public webhook URL |
 
-✅ **Infrastructure as Code** - Complete Terraform or Bicep templates  
-✅ **Resource Provisioning** - Container Apps, PostgreSQL, Log Analytics  
-✅ **Security** - SSL/TLS encryption, secrets management, HTTPS endpoints  
-✅ **Scaling** - Scale-to-zero configuration (0-3 replicas)  
-✅ **Health Monitoring** - Liveness, readiness, and startup probes  
-✅ **Automation** - Post-provision hooks for WEBHOOK_URL configuration  
-✅ **Documentation** - Deployment guides, troubleshooting, cost estimates  
-✅ **Error Handling** - Resource provider registration, timeout configurations  
+### Scaling Configuration
 
----
+The deployment is configured with:
+- **Min Replicas**: 0 (scale-to-zero when idle)
+- **Max Replicas**: 3
+- **Scale Rule**: HTTP requests (10 concurrent requests per replica)
 
-## 🆘 Getting Help
+To modify scaling:
+```bash
+az containerapp update \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --min-replicas 1 \
+  --max-replicas 5
+```
 
-If you encounter issues during deployment:
+## 📊 Cost Breakdown
 
-1. **Ask the agent** - It can analyze errors and provide solutions
-2. **Check agent documentation** - Each agent includes troubleshooting guidance
-3. **Review generated docs** - The agent creates comprehensive deployment guides
+**Estimated Monthly Cost** (Development/Scale-to-Zero Configuration):
 
-**For n8n-specific questions:**
-- [n8n Documentation](https://docs.n8n.io/)
-- [n8n Community](https://community.n8n.io/)
+| Resource | SKU/Tier | Estimated Cost |
+|----------|----------|----------------|
+| Container Apps Environment | Consumption | $0 (included) |
+| n8n Container App | 1 vCPU, 2GB RAM, scale-to-zero | ~$10-30/month* |
+| PostgreSQL Flexible Server | B1ms (Burstable) | ~$15/month |
+| Log Analytics Workspace | PerGB2018 | ~$5/month |
+| Container Registry | Basic | ~$5/month |
+| **Total** | | **~$35-55/month** |
 
-**For Azure questions:**
-- [Azure Container Apps Docs](https://learn.microsoft.com/azure/container-apps/)
-- [Azure Developer CLI Docs](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
+*Cost varies based on actual usage. Scale-to-zero reduces costs when n8n is idle.
 
----
+**Production Configuration Costs**:
+- Min replicas = 1: ~$60-80/month for Container Apps
+- PostgreSQL General Purpose (GP_Standard_D2s_v3): ~$150/month
+
+Use the [Azure Pricing Calculator](https://azure.microsoft.com/pricing/calculator/) for precise estimates.
+
+## 🔍 Troubleshooting
+
+### Container App Not Starting
+
+**Symptom**: Container app shows "CrashLoopBackOff" or constant restarts
+
+**Solution**: Check health probe configuration and n8n startup time
+```bash
+# View container logs
+az containerapp logs show \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --tail 100
+
+# Increase startup probe failure threshold if needed
+# The deployment already sets failureThreshold: 30 (5 minutes)
+```
+
+### Database Connection Issues
+
+**Symptom**: n8n cannot connect to PostgreSQL
+
+**Solution**: Verify connection settings and firewall rules
+```bash
+# Test PostgreSQL connectivity
+az postgres flexible-server connect \
+  --name <server-name> \
+  --admin-user n8n \
+  --database-name n8n
+
+# Verify firewall rules allow Azure services
+az postgres flexible-server firewall-rule list \
+  --resource-group <resource-group> \
+  --name <server-name>
+```
+
+### WEBHOOK_URL Not Configured
+
+**Symptom**: Webhooks don't work, static assets fail to load
+
+**Solution**: Verify post-provision hook executed successfully
+```bash
+# Manually configure WEBHOOK_URL
+N8N_FQDN=$(az containerapp show \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --query "properties.configuration.ingress.fqdn" -o tsv)
+
+az containerapp update \
+  --name <app-name> \
+  --resource-group <resource-group> \
+  --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN"
+```
+
+### Resource Provider Not Registered
+
+**Symptom**: Deployment fails with "The subscription is not registered to use namespace..."
+
+**Solution**: Register the required provider
+```bash
+az provider register --namespace <namespace>
+# Wait for registration to complete
+  --set-env-vars "WEBHOOK_URL=https://$N8N_FQDN"
+```
+
+## 🔐 Security Best Practices
+
+1. **Encryption Key Storage**: The n8n encryption key is stored as a container app secret
+2. **Password Rotation**: Regularly rotate PostgreSQL and n8n passwords
+3. **Access Control**: Use Azure RBAC to limit access to resources
+4. **Network Security**: Consider using Private Endpoints for production
+5. **Monitoring**: Enable Azure Monitor alerts for security events
+
+## 🧹 Cleanup
+
+To delete all resources:
+
+```bash
+# Delete the entire environment
+azd down
+
+# Or manually delete the resource group
+az group delete --name rg-n8n --yes --no-wait
+```
+
+**Warning**: This will permanently delete all data. Export workflows before cleanup.
 
 ## 📚 Additional Resources
 
 - [n8n Documentation](https://docs.n8n.io/)
-- [Azure Container Apps](https://learn.microsoft.com/azure/container-apps/)
-- [Azure Developer CLI](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
-- [Terraform Azure Provider](https://registry.terraform.io/providers/hashicorp/azurerm/)
-- [Azure Bicep](https://learn.microsoft.com/azure/azure-resource-manager/bicep/)
+- [Azure Container Apps Documentation](https://learn.microsoft.com/azure/container-apps/)
+- [Azure Database for PostgreSQL Documentation](https://learn.microsoft.com/azure/postgresql/)
+- [Azure Developer CLI Documentation](https://learn.microsoft.com/azure/developer/azure-developer-cli/)
+
+## 🤝 Contributing
+
+Issues and pull requests are welcome! Please follow the standard GitHub workflow.
+
+## 📄 License
+
+This deployment template is provided as-is under the MIT License.

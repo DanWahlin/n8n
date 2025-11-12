@@ -1,6 +1,10 @@
 # Azure Developer CLI
 .azure/
 
+# Bicep
+*.parameters.json
+!*.parameters.json.example
+
 # Terraform
 *.tfstate
 *.tfstate.*
